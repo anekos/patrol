@@ -1,0 +1,7 @@
+[package]
+name = "patrol"
+version = "0.1.0"
+authors = ["anekos <anekos@snca.net>"]
+
+[dependencies]
+inotify = "*"
