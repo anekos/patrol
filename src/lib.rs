@@ -39,6 +39,10 @@ impl Target {
 const EVENTS: u32 = IN_CREATE | IN_MODIFY | IN_DELETE;
 
 
+pub fn make_targets(targets: &[&str]) -> Vec<Target> {
+    targets.iter().map(|it| Target::new(it)).collect()
+}
+
 
 pub fn start(targets: Vec<Target>, sender: Sender<()>) {
     let mut ino = INotify::init().unwrap();
