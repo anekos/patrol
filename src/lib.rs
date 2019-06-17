@@ -13,7 +13,7 @@ use inotify::INotify;
 use inotify::ffi::*;
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Target<T: Send + Clone> {
     pub path: PathBuf,
     pub is_file: bool,
