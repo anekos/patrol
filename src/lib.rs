@@ -39,7 +39,7 @@ impl<T: Send + Clone> Target<T> {
 
 #[allow(dead_code)]
 pub struct Event<T: Send + Clone> {
-    data: T
+    pub data: T
 }
 
 
