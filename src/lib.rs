@@ -22,8 +22,7 @@ pub struct Target<T: Send + Clone> {
 
 
 impl<T: Send + Clone> Target<T> {
-    pub fn new<P: AsRef<Path>>(path: &P, data: T) -> Target<T> {
-        let path = path.as_ref().to_path_buf();
+    pub fn new(path: PathBuf, data: T) -> Target<T> {
         let is_file = path.is_file();
         Target { path, is_file, data }
     }
@@ -46,10 +45,6 @@ pub struct Event<T: Send + Clone> {
 
 const EVENTS: u32 = IN_CREATE | IN_MODIFY | IN_DELETE;
 
-
-pub fn make_targets(targets: &[&str]) -> Vec<Target<()>> {
-    targets.iter().map(|it| Target::new(it, ())).collect()
-}
 
 
 pub fn spawn<T: Send + Clone + 'static>(targets: Vec<Target<T>>) -> Receiver<Event<T>> {
