@@ -1,9 +1,4 @@
 
-#![crate_name = "patrol"]
-#![crate_type = "lib"]
-
-extern crate inotify;
-
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Sender, Receiver, channel};
@@ -68,7 +63,7 @@ pub fn start<T: Send + Clone>(targets: &[Target<T>], sender: &Sender<Event<T>>) 
             ino.add_watch(watching_path.as_path(), EVENTS).unwrap()
         });
         if target.is_file {
-            let mut files = files.entry(*wd).or_insert_with(|| HashMap::new());
+            let files = files.entry(*wd).or_insert_with(|| HashMap::new());
             files.insert(
                 target.path.file_name().unwrap().to_str().unwrap().to_string(),
                 &target.data);

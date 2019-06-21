@@ -7,6 +7,7 @@ keywords = ["linux", "inotify"]
 license-file = "LICENSE"
 readme = "README.md"
 description = "File change notifier"
+edition = "2018"
 
 [dependencies]
 inotify = "0.3.0"
