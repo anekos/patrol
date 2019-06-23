@@ -1,6 +1,8 @@
 
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::mpsc::{Sender, Receiver, channel};
 use std::thread;
 
@@ -37,8 +39,10 @@ impl<T: Send + Clone> Target<T> {
 
 
 #[allow(dead_code)]
+#[derive(Debug)]
 pub struct Event<T: Send + Clone> {
-    pub data: T
+    pub data: T,
+    pub path: PathBuf,
 }
 
 
@@ -57,23 +61,32 @@ pub fn start<T: Send + Clone>(targets: &[Target<T>], sender: &Sender<Event<T>>) 
 
     let mut ino = Inotify::init()?;
 
-    let mut watched  = HashMap::<PathBuf, WD>::new();
+    let mut watched  = HashMap::<Rc<&Path>, Rc<WD>>::new();
+    let mut wd_to_path  = HashMap::<Rc<WD>, Rc<&Path>>::new();
 
-    let mut directories = HashMap::<WD, &T>::new();
-    let mut files = HashMap::<WD, HashMap<String, &T>>::new();
+    let mut directories = HashMap::<&WD, &T>::new();
+    let mut files = HashMap::<&WD, HashMap<&OsStr, &T>>::new();
 
     for target in targets {
-        let watching_path = target.watching_path().to_path_buf();
-        let wd = watched.entry(watching_path.clone()).or_insert_with(|| {
-            ino.add_watch(watching_path.as_path(), target_events).unwrap() // FIXME
-        });
+        let watching_path = target.watching_path();
+        if !watched.contains_key(&watching_path) {
+            let watching_path = Rc::new(watching_path);
+            let wd = Rc::new(ino.add_watch(&*watching_path, target_events)?);
+            wd_to_path.insert(wd.clone(), watching_path.clone());
+            watched.insert(watching_path, wd);
+        }
+    }
+
+    for target in targets {
+        let watching_path = target.watching_path();
+        let wd = watched.get(&watching_path).expect(concat!("BUG@", line!()));
         if target.is_file {
-            let files = files.entry(wd.clone()).or_insert_with(|| HashMap::new());
+            let files = files.entry(wd).or_insert_with(|| HashMap::new());
             files.insert(
-                target.path.file_name().ok_or(PE::NoFilename)?.to_str().ok_or(PE::FilepathEncoding)?.to_string(),
+                target.path.file_name().ok_or(PE::NoFilename)?,
                 &target.data);
         } else {
-            directories.insert(wd.clone(), &target.data);
+            directories.insert(wd, &target.data);
         }
     }
 
@@ -85,12 +98,13 @@ pub fn start<T: Send + Clone>(targets: &[Target<T>], sender: &Sender<Event<T>>) 
             let event: inotify::Event<_> = event;
             if let Some(name) = event.name {
                 let wd = event.wd;
-                if let Some(data) = directories.get(&wd).cloned().cloned() {
-                    sender.send(Event { data })?;
-                } else if let Some(files) = files.get(&wd) {
-                    if let Some(data) = files.get(name.to_str().ok_or(PE::FilepathEncoding)?) {
-                        sender.send(Event { data: data.to_owned().to_owned() })?;
-                    }
+
+                let data = directories.get(&wd).or_else(|| files.get(&wd).and_then(|it| it.get(name)));
+
+                if let Some(data) = data {
+                    let mut path = wd_to_path.get(&wd).expect(concat!("BUG@", line!())).to_path_buf();
+                    path.push(name);
+                    sender.send(Event { data: (*data).clone(), path })?;
                 }
             }
         }
