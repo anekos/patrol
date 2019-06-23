@@ -10,4 +10,5 @@ description = "File change notifier"
 edition = "2018"
 
 [dependencies]
-inotify = "0.3.0"
+failure = "*"
+inotify = "^0.7"
