@@ -21,6 +21,7 @@ pub struct Target<T: Send + Clone> {
     pub data: T,
 }
 
+pub type TargetU = Target<()>;
 
 impl<T: Send + Clone> Target<T> {
     pub fn new(path: PathBuf, data: T) -> Target<T> {
