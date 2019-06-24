@@ -62,8 +62,8 @@ pub fn start<T: Send + Clone>(targets: &[Target<T>], sender: &Sender<Event<T>>) 
 
     let mut ino = Inotify::init()?;
 
-    let mut watched  = HashMap::<Rc<&Path>, Rc<WD>>::new();
-    let mut wd_to_path  = HashMap::<Rc<WD>, Rc<&Path>>::new();
+    let mut watched  = HashMap::<&Path, Rc<WD>>::new();
+    let mut wd_to_path  = HashMap::<Rc<WD>, &Path>::new();
 
     let mut directories = HashMap::<&WD, &T>::new();
     let mut files = HashMap::<&WD, HashMap<&OsStr, &T>>::new();
@@ -71,7 +71,6 @@ pub fn start<T: Send + Clone>(targets: &[Target<T>], sender: &Sender<Event<T>>) 
     for target in targets {
         let watching_path = target.watching_path();
         if !watched.contains_key(&watching_path) {
-            let watching_path = Rc::new(watching_path);
             let wd = Rc::new(ino.add_watch(&*watching_path, target_events)?);
             wd_to_path.insert(wd.clone(), watching_path.clone());
             watched.insert(watching_path, wd);
