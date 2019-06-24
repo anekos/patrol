@@ -115,7 +115,7 @@ impl<T: Send + Clone + 'static> Patrol<T> {
                         let mut path = wd_to_path.get(&wd).expect(concat!("BUG@", line!())).to_path_buf();
                         path.push(name);
 
-                        if self.config.add_sub_directory && event.mask == EventMask::CREATE | EventMask::ISDIR {
+                        if self.config.watch_new_directory && event.mask == EventMask::CREATE | EventMask::ISDIR {
                             if !watched.contains_key(&path) {
                                 let wd = Rc::new(ino.add_watch(&path, target_events)?);
                                 let path = Rc::new(path.clone());
