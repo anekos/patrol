@@ -6,7 +6,7 @@ use std::rc::Rc;
 use std::sync::mpsc::{Sender, Receiver, channel};
 use std::thread;
 
-use inotify::{Inotify, WatchDescriptor as WD, WatchMask};
+use inotify::{Inotify, WatchDescriptor as WD, WatchMask, EventMask};
 
 mod errors;
 
@@ -38,7 +38,6 @@ impl<T: Send + Clone> Target<T> {
     }
 }
 
-
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct Event<T: Send + Clone> {
@@ -46,65 +45,89 @@ pub struct Event<T: Send + Clone> {
     pub path: PathBuf,
 }
 
+pub struct Patrol<T: Send + Clone> {
+    config: Config,
+    targets: Vec<Target<T>>,
+}
 
-
-
-
-pub fn spawn<T: Send + Clone + 'static>(targets: Vec<Target<T>>) -> Receiver<Event<T>> {
-    let (tx, rx) = channel();
-    thread::spawn(move || start(&targets, &tx));
-    rx
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Config {
+    pub add_sub_directory: bool,
 }
 
 
-pub fn start<T: Send + Clone>(targets: &[Target<T>], sender: &Sender<Event<T>>) -> PatrolResultU {
-    let target_events: WatchMask  = WatchMask::CREATE | WatchMask::MODIFY | WatchMask::DELETE;
-
-    let mut ino = Inotify::init()?;
-
-    let mut watched  = HashMap::<&Path, Rc<WD>>::new();
-    let mut wd_to_path  = HashMap::<Rc<WD>, &Path>::new();
-
-    let mut directories = HashMap::<&WD, &T>::new();
-    let mut files = HashMap::<&WD, HashMap<&OsStr, &T>>::new();
-
-    for target in targets {
-        let watching_path = target.watching_path();
-        if !watched.contains_key(&watching_path) {
-            let wd = Rc::new(ino.add_watch(&*watching_path, target_events)?);
-            wd_to_path.insert(wd.clone(), watching_path.clone());
-            watched.insert(watching_path, wd);
-        }
+impl<T: Send + Clone + 'static> Patrol<T> {
+    pub fn new(config: Config, targets: Vec<Target<T>>) -> Self {
+        Self { config, targets }
     }
 
-    for target in targets {
-        let watching_path = target.watching_path();
-        let wd = watched.get(&watching_path).expect(concat!("BUG@", line!()));
-        if target.is_file {
-            let files = files.entry(wd).or_insert_with(|| HashMap::new());
-            files.insert(
-                target.path.file_name().ok_or(PE::NoFilename)?,
-                &target.data);
-        } else {
-            directories.insert(wd, &target.data);
-        }
+    pub fn spawn(self) -> Receiver<Event<T>> {
+        let (tx, rx) = channel();
+        thread::spawn(move || self.start(&tx));
+        rx
     }
 
-    loop {
-        let mut buffer = [0; 1024];
-        let events = ino.read_events_blocking(&mut buffer)?;
+    pub fn start(self, sender: &Sender<Event<T>>) -> PatrolResultU {
+        let target_events: WatchMask  = WatchMask::CREATE | WatchMask::MODIFY | WatchMask::DELETE;
 
-        for event in events {
-            let event: inotify::Event<_> = event;
-            if let Some(name) = event.name {
-                let wd = event.wd;
+        let mut ino = Inotify::init()?;
 
-                let data = directories.get(&wd).or_else(|| files.get(&wd).and_then(|it| it.get(name)));
+        let mut watched  = HashMap::<Rc<PathBuf>, Rc<WD>>::new();
+        let mut wd_to_path  = HashMap::<Rc<WD>, Rc<PathBuf>>::new();
 
-                if let Some(data) = data {
-                    let mut path = wd_to_path.get(&wd).expect(concat!("BUG@", line!())).to_path_buf();
-                    path.push(name);
-                    sender.send(Event { data: (*data).clone(), path })?;
+        let mut directories = HashMap::<Rc<WD>, &T>::new();
+        let mut files = HashMap::<Rc<WD>, HashMap<&OsStr, &T>>::new();
+
+        for target in &self.targets {
+            let watching_path = Rc::new(target.watching_path().to_path_buf());
+            if !watched.contains_key(&*watching_path) {
+                let wd = Rc::new(ino.add_watch(&*watching_path, target_events)?);
+                wd_to_path.insert(wd.clone(), watching_path.clone());
+                watched.insert(watching_path, wd);
+            }
+        }
+
+        for target in &self.targets {
+            let watching_path = target.watching_path().to_path_buf();
+            let wd: Rc<WD> = watched.get(&watching_path).expect(concat!("BUG@", line!())).clone();
+            if target.is_file {
+                let files = files.entry(wd).or_insert_with(|| HashMap::new());
+                files.insert(
+                    target.path.file_name().ok_or(PE::NoFilename)?,
+                    &target.data);
+            } else {
+                directories.insert(wd, &target.data);
+            }
+        }
+
+        loop {
+            let mut buffer = [0; 1024];
+            let events = ino.read_events_blocking(&mut buffer)?;
+
+            for event in events {
+                let event: inotify::Event<_> = event;
+                if let Some(name) = event.name {
+                    let wd = event.wd;
+
+                    let data: Option<&T> = directories.get(&wd).or_else(|| files.get(&wd).and_then(|it| it.get(name))).cloned();
+
+                    if let Some(data) = data {
+                        let mut path = wd_to_path.get(&wd).expect(concat!("BUG@", line!())).to_path_buf();
+                        path.push(name);
+
+                        if self.config.add_sub_directory && event.mask == EventMask::CREATE | EventMask::ISDIR {
+                            if !watched.contains_key(&path) {
+                                let wd = Rc::new(ino.add_watch(&path, target_events)?);
+                                let path = Rc::new(path.clone());
+
+                                watched.insert(path.clone(), wd.clone());
+                                wd_to_path.insert(wd.clone(), path);
+                                directories.insert(wd, data);
+                            }
+                        }
+
+                        sender.send(Event { data: (*data).clone(), path })?;
+                    }
                 }
             }
         }
