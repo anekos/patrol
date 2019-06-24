@@ -52,7 +52,7 @@ pub struct Patrol<T: Send + Clone> {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Config {
-    pub add_sub_directory: bool,
+    pub watch_new_directory: bool,
 }
 
 
